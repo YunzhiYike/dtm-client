@@ -79,7 +79,7 @@ class Dtmimp
         }
     }
 
-    public function newTransBase(string $gid, string $transType, string $branchId)
+    public function initTransBase(string $gid, string $transType, string $branchId)
     {
         TransContext::setGid($gid);
         TransContext::setBranchId($branchId);

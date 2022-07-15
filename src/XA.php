@@ -71,6 +71,14 @@ class XA extends AbstractTransaction
         return $this->api->transRequestBranch($requestBranch);
     }
 
+    public function init(?string $gid = null)
+    {
+        if ($gid === null) {
+            $gid = $this->generateGid();
+        }
+        TransContext::init($gid, TransType::XA, '');
+    }
+
     /**
      * start a xa global transaction.
      * @param $callback
@@ -78,7 +86,7 @@ class XA extends AbstractTransaction
      */
     public function globalTransaction(string $gid, $callback)
     {
-        $this->dtmimp->newTransBase($gid, TransType::XA, '');
+        $this->init();
         $this->api->prepare(TransContext::toArray());
         try {
             $callback();

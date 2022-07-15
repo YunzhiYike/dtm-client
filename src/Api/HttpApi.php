@@ -39,6 +39,11 @@ class HttpApi implements ApiInterface
         return Protocol::HTTP;
     }
 
+    public function getProtocolHead(): string
+    {
+        return $this->getProtocol() . '://';
+    }
+
     public function generateGid(): string
     {
         $url = sprintf('/api/dtmsvr/newGid');
@@ -93,7 +98,7 @@ class HttpApi implements ApiInterface
 
     public function transRequestBranch(RequestBranch $requestBranch)
     {
-        $dtm = $this->config->get('dtm.server', '127.0.0.1') . ':' . $this->config->get('dtm.port.http', 36789) . '/api/dtmsvr';
+        $dtm = $this->getProtocolHead(). $this->config->get('dtm.server', '127.0.0.1') . ':' . $this->config->get('dtm.port.http', 36789) . '/api/dtmsvr';
         $options = [
             RequestOptions::QUERY => [
                 'dtm' => $dtm,
