@@ -9,13 +9,13 @@ English | [中文](./README-CN.md)
 </p>
 <p align="center">
   <a href="https://github.com/dtm-php/dtm-client/actions"><img src="https://github.com/dtm-php/dtm-client/actions/workflows/test.yml/badge.svg" alt="PHPUnit for dtm-client"></a>
-  <a href="https://packagist.org/packages/dtm/dtm-client"><img src="https://poser.pugx.org/dtm/dtm-client/downloads" alt="Total Downloads"></a>
-  <a href="https://packagist.org/packages/dtm/dtm-client"><img src="https://poser.pugx.org/dtm/dtm-client/d/monthly" alt="Monthly Downloads"></a>
+  <a href="https://packagist.org/packages/wyi/dtm-client"><img src="https://poser.pugx.org/wyi/dtm-client/downloads" alt="Total Downloads"></a>
+  <a href="https://packagist.org/packages/wyi/dtm-client"><img src="https://poser.pugx.org/wyi/dtm-client/d/monthly" alt="Monthly Downloads"></a>
 </p>
 
 # Introduction
 
-[dtm/dtm-client](https://packagist.org/packages/dtm/dtm-client) is the PHP client of Distributed Transaction Manager [DTM](https://github.com/dtm-labs/dtm). It has supported distributed transaction patterns of TCC pattern, Saga pattern, and two-phase message pattern. In communicate protocol it has supported communicate with DTM Server through HTTP protocol or gRPC protocol. Also the client can safely run in PHP-FPM and Swoole coroutine environment, and it has also make support more easier for [Hyperf](https://github.com/hyperf/hyperf) framework.
+[wyi/dtm-client](https://packagist.org/packages/wyi/dtm-client) is the PHP client of Distributed Transaction Manager [DTM](https://github.com/dtm-labs/dtm). It has supported distributed transaction patterns of TCC pattern, Saga pattern, XA pattern, and two-phase message pattern. In communicate protocol it has supported communicate with DTM Server through HTTP protocol or gRPC protocol. Also the client can safely run in PHP-FPM and Swoole coroutine environment, and it has also make support more easier for [Hyperf](https://github.com/hyperf/hyperf) framework.
 
 # About DTM
 
@@ -59,7 +59,7 @@ From the characteristics of the comparison above, DTM has great advantages in ma
 It is very convenient to install dtm-client through Composer
 
 ```bash
-composer require dtm/dtm-client
+composer require wyi/dtm-client
 ```
 
 * Don't forget to start DTM Server before you use it
@@ -71,10 +71,10 @@ composer require dtm/dtm-client
 If you are using the Hyperf framework, after installing the component, you can publish a configuration file to `./config/autoload/dtm.php` with the following `vendor:publish` command
 
 ```bash
-php bin/hyperf.php vendor:publish dtm/dtm-client
+php bin/hyperf.php vendor:publish wyi/dtm-client
 ```
 
-If you are using a non-Hyperf framework, copy the `./vendor/dtm/dtm-client/publish/dtm.php` file to the corresponding configuration directory.
+If you are using a non-Hyperf framework, copy the `./vendor/wyi/dtm-client/publish/dtm.php` file to the corresponding configuration directory.
 
 ```php
 use DtmClient\Constants\Protocol;
@@ -217,7 +217,7 @@ Execute transfer out successfully => execute transfer in failure => execute tran
 
 The following is a typical sequence diagram of a successfully completed SAGA transaction:
 
-<img src="https://en.dtm.pub/assets/saga_normal.59a75c01.jpg" height=428 />
+<img src="https://dtm.pub/assets/xa_normal.5a0ce600.jpg" height=600/>
 
 ### Example
 
@@ -266,3 +266,93 @@ class SagaController
     }
 }
 ```
+## XA pattern
+XA is a specification for distributed transactions proposed by the X/Open organization. The X/Open Distributed Transaction Processing (DTP) model envisages three software components:
+
+An application program (AP) defines transaction boundaries and specifies actions that constitute a transaction.
+
+Resource managers (RMs, such as databases or file access systems) provide access to shared resources.
+
+A separate component called a transaction manager (TM) assigns identifiers to transactions, monitors their progress, and takes responsibility for transaction completion and for failure recovery.
+
+The following figure illustrates the interfaces defined by the X/Open DTP model.
+
+<img src="https://en.dtm.pub/assets/xa-dtp.78622cb4.jpeg" height=428/>
+
+XA is divided into two phases.
+
+Phase 1 (prepare): All participating RMs prepare to execute their transactions and lock the required resources. When each participant is ready, it report to TM.
+
+Phase 2 (commit/rollback): When the transaction manager (TM) receives that all participants (RM) are ready, it sends commit commands to all participants. Otherwise, it sends rollback commands to all participants.
+
+At present, almost all popular databases support XA transactions, including Mysql, Oracle, SqlServer, and Postgres
+
+<img src="https://en.dtm.pub/assets/xa_normal.ebc35054.jpg" height=600/>
+
+### Example code
+
+The following is shown in the Hyperf framework, similar to others
+
+```php
+<?php
+namespace App\Controller;
+
+use DtmClient\TransContext;
+use DtmClient\XA;
+use Hyperf\Di\Annotation\Inject;
+use Hyperf\HttpServer\Annotation\GetMapping;
+use Hyperf\HttpServer\Contract\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
+
+class XaController
+{
+    protected string $serviceUri = 'http://127.0.0.1:9501';
+
+    #[Inject]
+    protected XA $xa;
+
+    #[GetMapping(path: 'successCase')]
+    public function successCase(): string
+    {
+        $payload = ['amount' => 50];
+        // Open the Xa, the global transaction
+        $this->xa->globalTransaction(function () use ($payload) {
+            // Call the sub transaction interface
+            $respone = $this->xa->callBranch($this->serviceUri . '/api/transIn', $payload);
+            // Obtain subthing response results in XA http mode
+            /* @var ResponseInterface $respone */
+            $respone->getBody()->getContents();
+            // Call the sub transaction interface
+            $this->xa->callBranch($this->serviceUri . '/api/transOut', $payload);
+        });
+        // Return the global transaction ID via TransContext:: getGid()
+        return TransContext::getGid();
+    }
+
+    #[GetMapping(path: 'api/transIn')]
+    public function transIn(RequestInterface $request): array
+    {
+        // The transIn method under the simulated distributed system
+        // Sub-transaction processing
+        $this->xa->localTransaction(function () {
+            // Local things processing
+        });
+
+        return ['status' => 0, 'message' => 'ok'];
+    }
+
+    #[GetMapping(path: 'api/transOut')]
+    public function transOut(RequestInterface $request): array
+    {
+        // The transOut method under the simulated distributed system
+        // Sub-transaction processing
+        $this->xa->localTransaction(function () {
+            // Local things processing
+        });
+
+        return ['status' => 0, 'message' => 'ok'];
+    }
+}
+
+```
+The above code first registers a global XA transaction, and then calls two sub-transactions TransOut, TransIn. After all the sub-transactions are executed successfully, the global XA transaction is committed to DTM. DTM receives the commitment of the XA global transaction, then calls the XA commit of all the sub-transactions, and finally change the status of global transaction to succeeded.
