@@ -12,8 +12,12 @@ use DtmClient\Api\ApiInterface;
 use DtmClient\Api\RequestBranch;
 use DtmClient\Constants\Branch;
 use DtmClient\Constants\Operation;
+use DtmClient\Constants\Protocol;
 use DtmClient\Constants\TransType;
+use DtmClient\Exception\InvalidArgumentException;
 use DtmClient\Exception\XaTransactionException;
+use DtmClient\Grpc\Message\DtmBranchRequest;
+use Google\Protobuf\Internal\Message;
 
 class XA extends AbstractTransaction
 {
@@ -60,15 +64,46 @@ class XA extends AbstractTransaction
     public function callBranch(string $url, array $body)
     {
         $subBranch = $this->branchIdGenerator->generateSubBranchId();
-        $requestBranch = new RequestBranch();
-        $requestBranch->body = $body;
-        $requestBranch->url = $url;
-        $requestBranch->phase2Url = $url;
-        $requestBranch->op = Operation::ACTION;
-        $requestBranch->method = 'POST';
-        $requestBranch->branchId = $subBranch;
-        $requestBranch->branchHeaders = TransContext::$branchHeaders;
-        return $this->api->transRequestBranch($requestBranch);
+        switch ($this->api->getProtocol()) {
+
+            case Protocol::HTTP:
+                $requestBranch = new RequestBranch();
+                $requestBranch->body = $body;
+                $requestBranch->url = $url;
+                $requestBranch->phase2Url = $url;
+                $requestBranch->op = Operation::ACTION;
+                $requestBranch->method = 'POST';
+                $requestBranch->branchId = $subBranch;
+                $requestBranch->branchHeaders = TransContext::$branchHeaders;
+                return $this->api->transRequestBranch($requestBranch);
+                break;
+            case Protocol::GRPC:
+                if (! $body instanceof Message) {
+                    throw new InvalidArgumentException('$body must be instance of Message');
+                }
+                $formatBody = [
+                    'Gid' => TransContext::getGid(),
+                    'TransType' => TransType::XA,
+                    'BranchID' => $subBranch,
+                    'BusiPayload' => $body->serializeToString(),
+                ];
+                $argument = new DtmBranchRequest($formatBody);
+                $this->api->registerBranch($formatBody);
+                $branchRequest = new RequestBranch();
+                $branchRequest->grpcArgument = $argument;
+                $branchRequest->url = $url;
+                $branchRequest->metadata = [
+                    'dtm-gid' => [$formatBody['Gid']],
+                    'dtm-trans_type' => [$formatBody['TransType']],
+                    'dtm-branch_id' => [$formatBody['BranchID']],
+                    'dtm-op' => [Operation::TRY],
+                    'dtm-dtm' => [TransContext::getDtm()],
+                    'dtm-phase2_url' => [$url],
+                ];
+                $this->api->transRequestBranch($branchRequest);
+                break;
+        }
+
     }
 
     public function init(?string $gid = null)
