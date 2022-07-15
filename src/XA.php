@@ -61,7 +61,7 @@ class XA extends AbstractTransaction
         });
     }
 
-    public function callBranch(string $url, array $body)
+    public function callBranch(string $url,$body)
     {
         $subBranch = $this->branchIdGenerator->generateSubBranchId();
         switch ($this->api->getProtocol()) {
