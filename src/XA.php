@@ -15,6 +15,7 @@ use DtmClient\Constants\Operation;
 use DtmClient\Constants\Protocol;
 use DtmClient\Constants\TransType;
 use DtmClient\Exception\InvalidArgumentException;
+use DtmClient\Exception\UnsupportedException;
 use DtmClient\Exception\XaTransactionException;
 use DtmClient\Grpc\Message\DtmBranchRequest;
 use Google\Protobuf\Internal\Message;
@@ -40,33 +41,55 @@ class XA extends AbstractTransaction
      * @param mixed $callback
      * @throws XaTransactionException
      */
-    public function localTransaction(array $query, $callback)
+    public function localTransaction(?array $query, $callback)
     {
         $phase2Url = $this->xaQueryToTransContext($query);
         if (TransContext::getOp() == Branch::BranchCommit || TransContext::getOp() == Branch::BranchRollback) {
             echo '[' . TransContext::getOp() . ']' . TransContext::getGid() . '-' . TransContext::getBranchId() . PHP_EOL;
-            $this->dtmimp->xaHandlePhase2(TransContext::getGid(), TransContext::getBranchId(), TransContext::getOp());
+            $this->dtmimp->xaHandlePhase2(TransContext::getGid(), TransContext::getBranchId(), TransContext::getOp());;
             return;
         }
 
         $this->dtmimp->xaHandleLocalTrans(function () use ($phase2Url, $callback) {
             $callback();
-            $body = [
-                'url' => $phase2Url,
-                'branch_id' => TransContext::getBranchId(),
-                'gid' => TransContext::getGid(),
-                'trans_type' => TransType::XA,
-            ];
-            return $this->api->registerBranch($body);
+            switch ($this->api->getProtocol()) {
+                case Protocol::GRPC:
+                    $body = [
+                        'BranchID' => TransContext::getBranchId(),
+                        'Gid' => TransContext::getGid(),
+                        'TransType' => TransType::XA,
+                        'Data' => ['url' => $phase2Url]
+                    ];
+                    break;
+                case Protocol::HTTP:
+                case Protocol::JSONRPC_HTTP:
+                    $body = [
+                        'url' => $phase2Url,
+                        'branch_id' => TransContext::getBranchId(),
+                        'gid' => TransContext::getGid(),
+                        'trans_type' => TransType::XA,
+                    ];
+                    break;
+                default:
+                    throw new UnsupportedException('Unsupported protocol');
+            }
+            $res =  $this->api->registerBranch($body);
+            return $res;
         });
     }
 
-    public function callBranch(string $url,$body)
+    /**
+     * @param string $url
+     * @param array|Message $body
+     * @return void
+     * @throws InvalidArgumentException
+     */
+    public function callBranch(string $url, $body)
     {
         $subBranch = $this->branchIdGenerator->generateSubBranchId();
         switch ($this->api->getProtocol()) {
-
             case Protocol::HTTP:
+            case Protocol::JSONRPC_HTTP:
                 $requestBranch = new RequestBranch();
                 $requestBranch->body = $body;
                 $requestBranch->url = $url;
@@ -85,22 +108,26 @@ class XA extends AbstractTransaction
                     'Gid' => TransContext::getGid(),
                     'TransType' => TransType::XA,
                     'BranchID' => $subBranch,
-                    'BusiPayload' => $body->serializeToString(),
+                    'Op' => Operation::ACTION,
+                    'BusiPayload' => $body->serializeToJsonString(),
+                    'Data' => ['phase2_url' => $url],
                 ];
                 $argument = new DtmBranchRequest($formatBody);
-                $this->api->registerBranch($formatBody);
                 $branchRequest = new RequestBranch();
                 $branchRequest->grpcArgument = $argument;
                 $branchRequest->url = $url;
+                $branchRequest->phase2Url = $url;
+                $branchRequest->op = Operation::ACTION;
                 $branchRequest->metadata = [
                     'dtm-gid' => [$formatBody['Gid']],
                     'dtm-trans_type' => [$formatBody['TransType']],
                     'dtm-branch_id' => [$formatBody['BranchID']],
-                    'dtm-op' => [Operation::TRY],
+                    'dtm-op' => [Operation::ACTION],
                     'dtm-dtm' => [TransContext::getDtm()],
+                    'dtm-url' => [$url],
                     'dtm-phase2_url' => [$url],
                 ];
-                $this->api->transRequestBranch($branchRequest);
+                return $this->api->transRequestBranch($branchRequest);
                 break;
         }
 
@@ -141,7 +168,7 @@ class XA extends AbstractTransaction
         $phase2Url = $params['phase2_url'] ?? '';
         $transType = $params['trans_type'] ?? '';
         $this->barrier->barrierFrom($transType, $gid, $branchId, $op);
-        TransContext::setDtm($dtm);
+        $dtm && TransContext::setDtm($dtm);
         return $phase2Url;
     }
 }
