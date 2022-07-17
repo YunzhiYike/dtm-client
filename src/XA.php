@@ -41,16 +41,16 @@ class XA extends AbstractTransaction
      * @param mixed $callback
      * @throws XaTransactionException
      */
-    public function localTransaction(?array $query, $callback)
+    public function localTransaction($callback)
     {
-        $phase2Url = $this->xaQueryToTransContext($query);
         if (TransContext::getOp() == Branch::BranchCommit || TransContext::getOp() == Branch::BranchRollback) {
-            echo '[' . TransContext::getOp() . ']' . TransContext::getGid() . '-' . TransContext::getBranchId() . PHP_EOL;
-            $this->dtmimp->xaHandlePhase2(TransContext::getGid(), TransContext::getBranchId(), TransContext::getOp());;
+            $log = '[' . TransContext::getOp() . ']' . TransContext::getGid() . '-' . TransContext::getBranchId();
+            var_dump($log);
+            $this->dtmimp->xaHandlePhase2(TransContext::getGid(), TransContext::getBranchId(), TransContext::getOp());
             return;
         }
 
-        $this->dtmimp->xaHandleLocalTrans(function () use ($phase2Url, $callback) {
+        $this->dtmimp->xaHandleLocalTrans(function () use ($callback) {
             $callback();
             switch ($this->api->getProtocol()) {
                 case Protocol::GRPC:
@@ -58,13 +58,13 @@ class XA extends AbstractTransaction
                         'BranchID' => TransContext::getBranchId(),
                         'Gid' => TransContext::getGid(),
                         'TransType' => TransType::XA,
-                        'Data' => ['url' => $phase2Url]
+                        'Data' => ['url' => TransContext::getPhase2URL()],
                     ];
                     break;
                 case Protocol::HTTP:
                 case Protocol::JSONRPC_HTTP:
                     $body = [
-                        'url' => $phase2Url,
+                        'url' => TransContext::getPhase2URL(),
                         'branch_id' => TransContext::getBranchId(),
                         'gid' => TransContext::getGid(),
                         'trans_type' => TransType::XA,
@@ -73,15 +73,12 @@ class XA extends AbstractTransaction
                 default:
                     throw new UnsupportedException('Unsupported protocol');
             }
-            $res =  $this->api->registerBranch($body);
-            return $res;
+            return $this->api->registerBranch($body);
         });
     }
 
     /**
-     * @param string $url
      * @param array|Message $body
-     * @return void
      * @throws InvalidArgumentException
      */
     public function callBranch(string $url, $body)
@@ -110,7 +107,7 @@ class XA extends AbstractTransaction
                     'BranchID' => $subBranch,
                     'Op' => Operation::ACTION,
                     'BusiPayload' => $body->serializeToJsonString(),
-                    'Data' => ['phase2_url' => $url],
+                    'Data' => ['url' => $url],
                 ];
                 $argument = new DtmBranchRequest($formatBody);
                 $branchRequest = new RequestBranch();
@@ -124,13 +121,12 @@ class XA extends AbstractTransaction
                     'dtm-branch_id' => [$formatBody['BranchID']],
                     'dtm-op' => [Operation::ACTION],
                     'dtm-dtm' => [TransContext::getDtm()],
-                    'dtm-url' => [$url],
                     'dtm-phase2_url' => [$url],
+                    'dtm-url' => [$url],
                 ];
                 return $this->api->transRequestBranch($branchRequest);
                 break;
         }
-
     }
 
     public function init(?string $gid = null)
@@ -139,6 +135,7 @@ class XA extends AbstractTransaction
             $gid = $this->generateGid();
         }
         TransContext::init($gid, TransType::XA, '');
+        TransContext::setOp(Operation::ACTION);
     }
 
     /**
@@ -157,18 +154,5 @@ class XA extends AbstractTransaction
             $this->api->abort(TransContext::toArray());
             throw $throwable;
         }
-    }
-
-    protected function xaQueryToTransContext(array $params)
-    {
-        $branchId = $params['branch_id'] ?? '';
-        $dtm = $params['dtm'] ?? '';
-        $gid = $params['gid'] ?? '';
-        $op = $params['op'] ?? '';
-        $phase2Url = $params['phase2_url'] ?? '';
-        $transType = $params['trans_type'] ?? '';
-        $this->barrier->barrierFrom($transType, $gid, $branchId, $op);
-        $dtm && TransContext::setDtm($dtm);
-        return $phase2Url;
     }
 }

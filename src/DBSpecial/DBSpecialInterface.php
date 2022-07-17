@@ -15,5 +15,4 @@ interface DBSpecialInterface
     public function getInsertIgnoreTemplate(string $tableAndValues, string $pgConstraint): string;
 
     public function getXaSQL(string $command, string $xid): string;
-
 }

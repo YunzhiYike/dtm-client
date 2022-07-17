@@ -24,5 +24,4 @@ class MySqlDBSpecial implements DBSpecialInterface
     {
         return sprintf('XA %s %s', $command, $xid);
     }
-
 }
