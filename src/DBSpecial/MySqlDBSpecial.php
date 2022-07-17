@@ -22,6 +22,6 @@ class MySqlDBSpecial implements DBSpecialInterface
 
     public function getXaSQL(string $command, string $xid): string
     {
-        return sprintf('XA %s %s', $command, $xid);
+        return sprintf('XA %s \'%s\'', $command, $xid);
     }
 }
