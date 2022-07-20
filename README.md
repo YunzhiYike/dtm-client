@@ -277,7 +277,7 @@ A separate component called a transaction manager (TM) assigns identifiers to tr
 
 The following figure illustrates the interfaces defined by the X/Open DTP model.
 
-<img src="https://en.dtm.pub/assets/xa-dtp.78622cb4.jpeg" height=428/>
+<img src="https://en.dtm.pub/assets/xa-dtp.78622cb4.jpeg" />
 
 XA is divided into two phases.
 
