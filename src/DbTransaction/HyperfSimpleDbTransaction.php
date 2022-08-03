@@ -29,7 +29,7 @@ class HyperfSimpleDbTransaction implements DBTransactionInterface
 
     public function execInsert(string $sql, array $bindings): int
     {
-        return DB::execute($sql, $bindings);
+        return Db::execute($sql, $bindings);
     }
 
     public function execute(string $sql, array $bindings)
