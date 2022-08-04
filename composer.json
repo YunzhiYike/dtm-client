@@ -20,7 +20,7 @@
         }
     },
     "require": {
-        "php": ">=8.0",
+        "php": ">=7.2",
         "ext-json": "*",
         "hyperf/context": "^2.2|^3.0",
         "hyperf/guzzle": "^2.2|^3.0",
