@@ -25,9 +25,11 @@ class DBSpecialFactory
     public function __invoke(ContainerInterface $container): DBSpecialInterface
     {
         $type = $container->get(ConfigInterface::class)->get('dtm.barrier.db.type', DbType::MySQL);
-        return match ($type) {
-            DbType::MySQL => $container->get(MySqlDBSpecial::class),
-            default => throw new UnsupportedException('Barrier DB type is unsupported.'),
-        };
+        switch ($type) {
+            case DbType::MySQL:
+                return $container->get(MySqlDBSpecial::class);
+            default:
+                throw new UnsupportedException('Barrier DB type is unsupported.');
+        }
     }
 }
